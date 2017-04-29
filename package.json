@@ -1,0 +1,25 @@
+{
+  "name": "cdcm",
+  "version": "0.0.1",
+  "description": "Community driven content management. Content stored in a directories composed of json, markdown, and images.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iambriansreed/cdcm.git"
+  },
+  "keywords": [
+    "Community",
+    "driven",
+    "content",
+    "management"
+  ],
+  "author": "iambriansreed",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/iambriansreed/cdcm/issues"
+  },
+  "homepage": "https://github.com/iambriansreed/cdcm#readme"
+}
