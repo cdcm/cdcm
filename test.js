@@ -1,10 +1,8 @@
-let cdcm = require( './index' );
+const cdcm = require( './index' );
 
 let config = {
-    githubBranchUrl: 'https://github.com/RevolutionVA/website2017/archive/master',
-    //localPath: process.cwd() + '/.source',
-    //imageSourceUrl : '/assets/images',
-    tempDir: '/.tmp-cdcm'
+    zipUrl : 'https://github.com/RevolutionVA/website2017/archive/master.zip',
+    cdnUrl : 'https://raw.githubusercontent.com/revolutionva/website2017/master'
 };
 
 cdcm( config )

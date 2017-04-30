@@ -9,275 +9,265 @@ const path = require( 'path' );
 module.exports = function (config) {
 
     config = Object.assign( {
-        githubBranchUrl: false,
-        localPath: false,
-        imageSourceUrl: false,
-        tempDir: false,
-        verbose: 1000
+        zipUrl : false,
+        cdnUrl : false,
+        localPath : false,
+        tempDir : '/.tmp-cdcm',
+        verbose : 1000
     }, config );
 
     config.tempDir = process.cwd() + config.tempDir;
 
-    let gettingData = null;
+    config.zipFilePath = config.tempDir + '/tmp.zip';
+
+    let timeout = false;
 
     return {
-        getData: function getData () {
+        getData : function getData () {
 
             if ( config.verbose )
-                gettingData = setTimeout( () => console.log( 'Getting data...' ), config.verbose );
+                timeout = setTimeout( () => console.log( 'Getting data...' ), config.verbose );
 
             return getContent( config )
-                .then( response => {
-                    return generateData( response.dir, response.imgSrcUrl );
+                .then( () => {
+
+                    return generateData( config );
                 } )
                 .then( data => {
 
-                    if ( config.verbose )
-                        clearTimeout( gettingData );
-
+                    if ( timeout ) clearTimeout( timeout );
                     return Promise.resolve( data );
                 } );
         }
-    }
-};
+    };
 
-function getContent (config) {
+    function getContent () {
 
-    return fsx.emptyDir( config.tempDir )
-        .then( () => {
-
-            let response = { dir: false, imgSrcUrl: false };
-
-            if ( config.localPath && fsx.pathExistsSync( config.localPath ) && isDirectory( config.localPath ) ) {
-
-                response.dir = config.localPath;
-                response.imgSrcUrl = config.imageSourceUrl;
-                return Promise.resolve( response );
-            }
-            else if ( config.githubBranchUrl ) {
-                return getFromUrl( config.githubBranchUrl + '.zip', config.tempDir )
-                    .then( () => {
-
-                        response.dir = config.tempDir;
-                        response.imgSrcUrl = config.githubBranchUrl
-                            .replace( 'github.com', 'cdn.rawgit.com' )
-                            .replace( '/archive', '' )
-                        ;
-                        return response;
-                    } );
-            }
-
-            return Promise.reject( 'Enter a valid localPath or zipUrl.' );
-        } );
-
-    function getFromUrl (zipUrl, tmpDir) {
-
-        return downloadZip( zipUrl, tmpDir )
-            .then( zipFilePath => {
-                return extractZip( zipFilePath, tmpDir );
-            } )
+        return fsx.emptyDir( config.tempDir )
             .then( () => {
-                return copyExtractedFiles( tmpDir );
-            } )
-    }
 
-    function downloadZip (zipUrl, dir) {
+                if ( config.localPath && fsx.pathExistsSync( config.localPath ) && isDirectory( config.localPath ) ) {
 
-        return new Promise( (resolve, reject) => {
+                    return Promise.resolve();
+                }
+                else if ( config.zipUrl ) {
 
-            return request( { url: zipUrl, encoding: null }, (err, resp, zipFile) => {
-                if ( err ) {
-                    reject( err );
+                    return getFromUrl();
                 }
 
-                let zipFilePath = dir + '/tmp.zip';
+                return Promise.reject( 'Enter a valid localPath or config.zipUrl.' );
+            } );
 
-                fsx.removeSync( zipFilePath );
+        function getFromUrl () {
 
-                fsx.writeFile( zipFilePath, zipFile, (err) => {
+            return downloadZip()
+                .then( () => {
+                    return extractZip();
+                } )
+                .then( () => {
+                    return copyExtractedFiles();
+                } )
+        }
 
+        function downloadZip () {
+
+            return new Promise( (resolve, reject) => {
+
+                return request( { url : config.zipUrl, encoding : null }, (err, resp, zipFile) => {
                     if ( err ) {
                         reject( err );
                     }
 
-                    resolve( zipFilePath );
+                    fsx.removeSync( config.zipFilePath );
+
+                    fsx.writeFile( config.zipFilePath, zipFile, (err) => {
+
+                        if ( err ) {
+                            reject( err );
+                        }
+
+                        resolve( config.zipFilePath );
+                    } );
                 } );
             } );
-        } );
+        }
+
+        function extractZip () {
+
+            const zip = new AdmZip( config.zipFilePath );
+
+            zip.extractAllTo( config.tempDir, true );
+
+            fsx.removeSync( config.zipFilePath );
+
+            return Promise.resolve();
+        }
+
+        function copyExtractedFiles () {
+
+            fsx.readdirSync( config.tempDir )
+                .forEach( extractFolder => {
+
+                    let unzippedFolderPath = config.tempDir + '/' + extractFolder;
+
+                    if ( isDirectory( unzippedFolderPath ) ) {
+
+                        copyFiles( unzippedFolderPath, config.tempDir );
+
+                    } else {
+                        fsx.copySync( extractFolder, config.tempDir );
+                    }
+
+                    fsx.removeSync( unzippedFolderPath );
+                } );
+
+            return Promise.resolve();
+        }
+
+        function copyFiles (from, to) {
+
+            fsx.readdirSync( from )
+                .filter( file => !file.startsWith( '.' ) )
+                .forEach( file => {
+                    fsx.copySync( from + '/' + file, to + '/' + file );
+                } );
+
+            return Promise.resolve( to );
+        }
     }
 
-    function extractZip (zipPath, dir) {
+    function generateData () {
 
-        const zip = new AdmZip( zipPath );
+        let contentTypesRaw = fsx.readdirSync( config.tempDir );
 
-        zip.extractAllTo( dir, true );
+        return contentTypesRaw
+            .map( file => {
 
-        fsx.removeSync( zipPath );
+                const filePath = config.tempDir + '/' + file;
 
-        return Promise.resolve();
-    }
+                let items = [];
 
-    function copyExtractedFiles (dir) {
+                let type = file;
 
-        fsx.readdirSync( dir )
-            .forEach( unzippedFolder => {
+                if ( isDirectory( filePath ) ) {
 
-                let unzippedFolderPath = dir + '/' + unzippedFolder;
+                    items = processItemsDir( filePath, file );
 
-                if ( isDirectory( unzippedFolderPath ) ) {
-                    copyFiles( unzippedFolderPath, dir );
+                } else if ( '.json' === path.extname( file ) ) {
+
+                    items = fsx.readJsonSync( filePath, 'utf-8' );
+
+                    type = path.basename( file, '.json' );
+
                 } else {
-                    fsx.copySync( unzippedFolder, dir );
+                    return false;
                 }
-                fsx.removeSync( unzippedFolderPath );
-            } );
 
-        return Promise.resolve();
-    }
+                items = Array.isArray( items ) ? items : [ items ];
 
-    function copyFiles (from, to) {
+                items = typeProcessor( type )( items );
 
-        fsx.readdirSync( from )
-            .filter( file => !file.startsWith( '.' ) )
-            .forEach( file => {
-                fsx.copySync( from + '/' + file, to + '/' + file );
-            } );
+                return { items, type };
 
-        return Promise.resolve( to );
-    }
-}
+            } )
+            .filter( items => items );
 
-function generateData (tempDir, imgSrcUrl) {
-
-    let contentTypesRaw = fsx.readdirSync( tempDir );
-
-    return contentTypesRaw
-        .map( function (file) {
-
-            const filePath = tempDir + '/' + file;
+        function processItemsDir (dirPath, typeName) {
 
             let items = [];
 
-            let type = file;
+            let itemFiles = fsx.readdirSync( dirPath )
+                .filter( slug => {
+                    return isDirectory( dirPath + '/' + slug )
+                        && !slug.startsWith( '_' )
+                        && !slug.startsWith( '.' )
+                        && slug.toLowerCase() !== 'readme.md';
+                } );
 
-            if ( isDirectory( filePath ) ) {
+            itemFiles.forEach( slug => {
 
-                items = processItemsDir( filePath, file );
+                let itemDirPath = dirPath + '/' + slug;
 
-            } else if ( '.json' === path.extname( file ) ) {
+                let itemSource = { slug : slug };
 
-                items = fsx.readJsonSync( filePath, 'utf-8' );
+                let itemContents = fsx.readdirSync( itemDirPath );
 
-                type = path.basename( file, '.json' );
+                let processedFiles = itemContents.map( file => {
 
-            } else {
-                return false;
-            }
+                    let filePath = itemDirPath + '/' + file;
+                    let fileName = path.basename( file, path.extname( file ) );
+                    let extension = path.extname( file );
 
-            items = Array.isArray( items ) ? items : [ items ];
+                    return fileProcessor( extension )( typeName, slug, fileName, filePath, itemSource );
+                } );
 
-            items = typeProcessor( type )( items );
+                items.push( Object.assign( {}, ...processedFiles ) );
 
-            return { items, type };
-
-        } )
-        .filter( items => items );
-
-    function processItemsDir (dirPath, typeName) {
-
-        let items = [];
-
-        let itemFiles = fsx.readdirSync( dirPath )
-            .filter( slug => {
-                return isDirectory( dirPath + '/' + slug )
-                    && !slug.startsWith( '_' )
-                    && !slug.startsWith( '.' )
-                    && slug.toLowerCase() !== 'readme.md';
             } );
-
-        itemFiles.forEach( slug => {
-
-            let itemDirPath = dirPath + '/' + slug;
-
-            let itemSource = { slug: slug };
-
-            let itemContents = fsx.readdirSync( itemDirPath );
-
-            let processedFiles = itemContents.map( file => {
-
-                let filePath = itemDirPath + '/' + file;
-                let fileName = path.basename( file, path.extname( file ) );
-                let extension = path.extname( file );
-
-                return fileProcessor( extension )( typeName, slug, fileName, filePath, itemSource );
-            } );
-
-            items.push( Object.assign( {}, ...processedFiles ) );
-
-        } );
-
-        return items;
-    }
-
-    function fileProcessor (fileExt) {
-
-        let p = {
-
-            '.md': function (typeName, slug, fileName, filePath, source) {
-                const markdownContent = fsx.readFileSync( filePath, 'utf-8' );
-                source[ fileName ] = marked( markdownContent );
-                return source;
-            },
-            '.json': function (typeName, slug, fileName, filePath, source) {
-
-                const data = fsx.readJsonSync( filePath, { throws: false } );
-                return Object.assign( source, data || {} );
-            },
-            '.png': function (typeName, slug, fileName, filePath, source) {
-
-                source[ fileName ] = imgSrcUrl + '/'
-                    + typeName + '/' + slug + '/' + fileName + '.png';
-                return source;
-            },
-            '.jpg': function (typeName, slug, fileName, filePath, source) {
-
-                source[ fileName ] = imgSrcUrl + '/'
-                    + typeName + '/' + slug + '/' + fileName + '.jpg';
-                return source;
-            }
-        };
-
-        return function (typeName, slug, fileName, filePath, source) {
-
-            if ( p.hasOwnProperty( fileExt ) && typeof p[ fileExt ] === 'function' ) {
-
-                source = p[ fileExt ]( typeName, slug, fileName, filePath, source );
-            }
-
-            return source;
-        }
-    }
-
-    function typeProcessor (type) {
-
-        let p = {
-            'humans': function (item) {
-                item.role = Array.isArray( item.role ) ? item.role : [ item.role ];
-                return item;
-            }
-        };
-
-        return function (items) {
-
-            if ( p.hasOwnProperty( type ) && typeof p[ type ] === 'function' ) {
-
-                items = items.map( item => p[ type ]( item ) );
-            }
 
             return items;
         }
+
+        function fileProcessor (fileExt) {
+
+            let p = {
+
+                '.md' : function (typeName, slug, fileName, filePath, source) {
+                    const markdownContent = fsx.readFileSync( filePath, 'utf-8' );
+                    source[ fileName ] = marked( markdownContent );
+                    return source;
+                },
+                '.json' : function (typeName, slug, fileName, filePath, source) {
+
+                    const data = fsx.readJsonSync( filePath, { throws : false } );
+                    return Object.assign( source, data || {} );
+                },
+                '.png' : function (typeName, slug, fileName, filePath, source) {
+
+                    source[ fileName ] = config.cdnUrl + '/'
+                        + typeName + '/' + slug + '/' + fileName + '.png';
+                    return source;
+                },
+                '.jpg' : function (typeName, slug, fileName, filePath, source) {
+
+                    source[ fileName ] = config.cdnUrl + '/'
+                        + typeName + '/' + slug + '/' + fileName + '.jpg';
+                    return source;
+                }
+            };
+
+            return function (typeName, slug, fileName, filePath, source) {
+
+                if ( p.hasOwnProperty( fileExt ) && typeof p[ fileExt ] === 'function' ) {
+
+                    source = p[ fileExt ]( typeName, slug, fileName, filePath, source );
+                }
+
+                return source;
+            }
+        }
+
+        function typeProcessor (type) {
+
+            let p = {
+                'humans' : function (item) {
+                    item.role = Array.isArray( item.role ) ? item.role : [ item.role ];
+                    return item;
+                }
+            };
+
+            return function (items) {
+
+                if ( p.hasOwnProperty( type ) && typeof p[ type ] === 'function' ) {
+
+                    items = items.map( item => p[ type ]( item ) );
+                }
+
+                return items;
+            }
+        }
     }
-}
+};
 
 function isDirectory (path) {
     return fsx.lstatSync( path ).isDirectory();
