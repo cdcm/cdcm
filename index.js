@@ -13,7 +13,8 @@ module.exports = function (config) {
         cdnUrl : false,
         localPath : false,
         tempDir : '/.tmp-cdcm',
-        verbose : 1000
+        verbose : 1000,
+        linkFileExt : []
     }, config );
 
     config.tempDir = process.cwd() + config.tempDir;
@@ -28,10 +29,10 @@ module.exports = function (config) {
             if ( config.verbose )
                 timeout = setTimeout( () => console.log( 'Getting data...' ), config.verbose );
 
-            return getContent( config )
+            return getContent()
                 .then( () => {
 
-                    return generateData( config );
+                    return generateData();
                 } )
                 .then( data => {
 
@@ -48,10 +49,9 @@ module.exports = function (config) {
 
                 if ( config.localPath && fsx.pathExistsSync( config.localPath ) && isDirectory( config.localPath ) ) {
 
-                    return Promise.resolve();
+                    return fsx.copy( config.localPath, config.tempDir );
                 }
                 else if ( config.zipUrl ) {
-
                     return getFromUrl();
                 }
 
@@ -208,9 +208,9 @@ module.exports = function (config) {
             return items;
         }
 
-        function fileProcessor (fileExt) {
+        function defaultFileProcessors () {
 
-            let p = {
+            let processors = {
 
                 '.md' : function (typeName, slug, fileName, filePath, source) {
                     const markdownContent = fsx.readFileSync( filePath, 'utf-8' );
@@ -221,26 +221,34 @@ module.exports = function (config) {
 
                     const data = fsx.readJsonSync( filePath, { throws : false } );
                     return Object.assign( source, data || {} );
-                },
-                '.png' : function (typeName, slug, fileName, filePath, source) {
-
-                    source[ fileName ] = config.cdnUrl + '/'
-                        + typeName + '/' + slug + '/' + fileName + '.png';
-                    return source;
-                },
-                '.jpg' : function (typeName, slug, fileName, filePath, source) {
-
-                    source[ fileName ] = config.cdnUrl + '/'
-                        + typeName + '/' + slug + '/' + fileName + '.jpg';
-                    return source;
                 }
             };
 
+            let linkFileExt = [ ...new Set( [ '.png', '.jpg' ].concat( config.linkFileExt ) ) ];
+
+            linkFileExt.forEach( ext => {
+                processors[ ext ] = fileLinker( ext );
+            } );
+
+            function fileLinker (fileExt) {
+                return function (typeName, slug, fileName, filePath, source) {
+
+                    source[ fileName ] = config.cdnUrl + '/'
+                        + typeName + '/' + slug + '/' + fileName + fileExt;
+                    return source;
+                };
+            }
+        }
+
+        function fileProcessor (fileExt) {
+
+            let processors = defaultFileProcessors();
+
             return function (typeName, slug, fileName, filePath, source) {
 
-                if ( p.hasOwnProperty( fileExt ) && typeof p[ fileExt ] === 'function' ) {
+                if ( processors.hasOwnProperty( fileExt ) && typeof processors[ fileExt ] === 'function' ) {
 
-                    source = p[ fileExt ]( typeName, slug, fileName, filePath, source );
+                    source = processors[ fileExt ]( typeName, slug, fileName, filePath, source );
                 }
 
                 return source;
