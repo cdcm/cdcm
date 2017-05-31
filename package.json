@@ -1,6 +1,6 @@
 {
   "name": "cdcm",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Community driven content management. Content stored in a directories composed of json, markdown, and images.",
   "main": "index.js",
   "scripts": {

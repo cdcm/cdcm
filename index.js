@@ -230,6 +230,8 @@ module.exports = function (config) {
                 processors[ ext ] = fileLinker( ext );
             } );
 
+            return processors;
+
             function fileLinker (fileExt) {
                 return function (typeName, slug, fileName, filePath, source) {
 
